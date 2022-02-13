@@ -48,7 +48,7 @@ def wait_for_champ_select_end(connection):
         time.sleep(5)
 
 
-def send_message(connection):
+def send_message(connection, repeat=3):
     while True:
         res = connection.get('/lol-chat/v1/conversations')
         if not res.ok:
@@ -62,11 +62,15 @@ def send_message(connection):
         logger.info('Found champ select conversation.')
         con_id = champ_select_con[0]['id']
         data = {'body': os.environ['MESSAGE']}
-        res = connection.post(f'/lol-chat/v1/conversations/{con_id}/messages', json=data)
-        if not res.ok:
-            logger.error('Error sending message.')
-            return None
-        return con_id
+        success = False
+        for _ in range(repeat):
+            res = connection.post(f'/lol-chat/v1/conversations/{con_id}/messages', json=data)
+            if res.ok:
+                success = True
+            if not res.ok:
+                logger.error('Error sending message.')
+            time.sleep(0.5)
+        return con_id if success else None
 
 
 def main():
@@ -78,6 +82,14 @@ def main():
     if 'MESSAGE' not in os.environ:
         logger.error('MESSAGE path is not set.')
         return
+    if 'REPEAT' not in os.environ:
+        logger.error('REPEAT value is not set.')
+        return
+    try:
+        repeat = int(os.environ['REPEAT'])
+    except ValueError:
+        logger.error('Invalid REPEAT value. It must be an integer.')
+        return
     league_client_path = os.environ['LEAGUE_CLIENT']
     dir_name = os.path.dirname(league_client_path)
     lockfile = os.path.join(dir_name, 'lockfile')
@@ -87,7 +99,7 @@ def main():
             connection = LeagueConnection(lockfile, timeout=24 * 3600)  # 1 day timeout
             logger.info('Successfully connected to league client.')
             wait_for_champ_select(connection)
-            if send_message(connection) is not None:
+            if send_message(connection, repeat=repeat) is not None:
                 logger.info('Sucessfully sent message.')
                 wait_for_champ_select_end(connection)
         except (LeagueConnectionError, requests.RequestException) as exp:
